@@ -1,7 +1,7 @@
 import re
 from io import BytesIO
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 import pdfplumber
@@ -59,6 +59,35 @@ def save_or_update(path, record, key_cols):
 
     save_csv(df, path)
 
+
+
+
+def weekend_actual_date(weekend_start, derived_day):
+    """Return the real calendar date for Friday/Saturday/Sunday/Monday derived data."""
+    offset_map = {
+        "Friday": 0,
+        "Saturday": 1,
+        "Sunday": 2,
+        "Monday": 3,
+    }
+
+    try:
+        base_date = datetime.strptime(str(weekend_start), "%Y-%m-%d")
+    except ValueError:
+        return str(weekend_start)
+
+    return (base_date + timedelta(days=offset_map.get(derived_day, 0))).strftime("%Y-%m-%d")
+
+
+def safe_sort_history(df):
+    if df.empty:
+        return df
+    df = df.copy()
+    sort_candidates = ["Report Date", "Weekend Start", "Week Range"]
+    for col in sort_candidates:
+        if col in df.columns:
+            return df.sort_values(col, kind="stable")
+    return df
 
 def clean_number(value):
     if value is None:
@@ -530,9 +559,12 @@ with tab_weekend:
                                 )
 
                             if st.button("Save Weekend Derived Daily Record"):
+                                actual_report_date = weekend_actual_date(weekend_start, derived_day)
+
                                 derived_record = {
                                     "Weekend Start": weekend_start,
                                     "Derived Day": derived_day,
+                                    "Report Date": actual_report_date,
                                     "Poly": target_poly,
                                     "Events": derived_events,
                                     "Energy J": derived_energy,
@@ -545,8 +577,23 @@ with tab_weekend:
                                     "Recommended Action": action,
                                 }
 
+                                daily_record = {
+                                    "Report Date": actual_report_date,
+                                    "Poly": target_poly,
+                                    "New Events": derived_events,
+                                    "Energy J": derived_energy,
+                                    "Potency m3": derived_potency,
+                                    "Tonnes": weekend_tonnes,
+                                    "E/P": ep,
+                                    "E/T": et if et is not None else "",
+                                    "Status": status,
+                                    "Cave Health Score": health,
+                                    "Recommended Action": action,
+                                }
+
                                 save_or_update(WEEKEND_DERIVED_FILE, derived_record, ["Weekend Start", "Derived Day", "Poly"])
-                                st.success("Weekend derived daily record saved.")
+                                save_or_update(DAILY_FILE, daily_record, ["Report Date", "Poly"])
+                                st.success("Weekend derived daily record saved and Daily Draw History updated.")
 
 
 with tab_weekly:
@@ -717,35 +764,111 @@ with tab_weekly:
 with tab_history:
     st.header("History / Admin")
 
-    daily_history = load_csv(DAILY_FILE)
-    weekend_history = load_csv(WEEKEND_FILE)
-    weekend_derived_history = load_csv(WEEKEND_DERIVED_FILE)
-    weekly_history = load_csv(WEEKLY_FILE)
+    daily_history = safe_sort_history(load_csv(DAILY_FILE))
+    weekend_history = safe_sort_history(load_csv(WEEKEND_FILE))
+    weekend_derived_history = safe_sort_history(load_csv(WEEKEND_DERIVED_FILE))
+    weekly_history = safe_sort_history(load_csv(WEEKLY_FILE))
 
     st.subheader("Daily Draw History")
     if daily_history.empty:
         st.info("No daily records saved yet.")
     else:
         st.dataframe(daily_history, width="stretch")
-        st.download_button("Download Daily History CSV", daily_history.to_csv(index=False).encode("utf-8"), "gdi_history.csv", "text/csv")
+
+        selected_daily_row = st.selectbox(
+            "Select Daily Record to Delete",
+            options=list(range(len(daily_history))),
+            format_func=lambda x: f"{daily_history.iloc[x].get('Report Date', '')} - {daily_history.iloc[x].get('Poly', '')}",
+            key="delete_daily_row",
+        )
+
+        if st.button("Delete Selected Daily Record"):
+            daily_history = daily_history.drop(daily_history.index[selected_daily_row])
+            save_csv(daily_history, DAILY_FILE)
+            st.success("Daily record deleted.")
+            st.rerun()
+
+        st.download_button(
+            "Download Daily History CSV",
+            daily_history.to_csv(index=False).encode("utf-8"),
+            "gdi_history.csv",
+            "text/csv",
+        )
 
     st.subheader("Weekend Cumulative History")
     if weekend_history.empty:
         st.info("No weekend cumulative records saved yet.")
     else:
         st.dataframe(weekend_history, width="stretch")
-        st.download_button("Download Weekend Cumulative CSV", weekend_history.to_csv(index=False).encode("utf-8"), "gdi_weekend_cumulative.csv", "text/csv")
+
+        selected_weekend_row = st.selectbox(
+            "Select Weekend Cumulative Record to Delete",
+            options=list(range(len(weekend_history))),
+            format_func=lambda x: f"{weekend_history.iloc[x].get('Weekend Start', '')} - {weekend_history.iloc[x].get('Poly', '')} - {weekend_history.iloc[x].get('Stage', '')}",
+            key="delete_weekend_row",
+        )
+
+        if st.button("Delete Selected Weekend Cumulative Record"):
+            weekend_history = weekend_history.drop(weekend_history.index[selected_weekend_row])
+            save_csv(weekend_history, WEEKEND_FILE)
+            st.success("Weekend cumulative record deleted.")
+            st.rerun()
+
+        st.download_button(
+            "Download Weekend Cumulative CSV",
+            weekend_history.to_csv(index=False).encode("utf-8"),
+            "gdi_weekend_cumulative.csv",
+            "text/csv",
+        )
 
     st.subheader("Weekend Derived Daily History")
     if weekend_derived_history.empty:
         st.info("No weekend derived records saved yet.")
     else:
         st.dataframe(weekend_derived_history, width="stretch")
-        st.download_button("Download Weekend Derived CSV", weekend_derived_history.to_csv(index=False).encode("utf-8"), "gdi_weekend_derived_daily.csv", "text/csv")
+
+        selected_derived_row = st.selectbox(
+            "Select Weekend Derived Record to Delete",
+            options=list(range(len(weekend_derived_history))),
+            format_func=lambda x: f"{weekend_derived_history.iloc[x].get('Report Date', weekend_derived_history.iloc[x].get('Weekend Start', ''))} - {weekend_derived_history.iloc[x].get('Derived Day', '')} - {weekend_derived_history.iloc[x].get('Poly', '')}",
+            key="delete_derived_row",
+        )
+
+        if st.button("Delete Selected Weekend Derived Record"):
+            weekend_derived_history = weekend_derived_history.drop(weekend_derived_history.index[selected_derived_row])
+            save_csv(weekend_derived_history, WEEKEND_DERIVED_FILE)
+            st.success("Weekend derived record deleted.")
+            st.rerun()
+
+        st.download_button(
+            "Download Weekend Derived CSV",
+            weekend_derived_history.to_csv(index=False).encode("utf-8"),
+            "gdi_weekend_derived_daily.csv",
+            "text/csv",
+        )
 
     st.subheader("Weekly Summary History")
     if weekly_history.empty:
         st.info("No weekly records saved yet.")
     else:
         st.dataframe(weekly_history, width="stretch")
-        st.download_button("Download Weekly CSV", weekly_history.to_csv(index=False).encode("utf-8"), "gdi_weekly_history.csv", "text/csv")
+
+        selected_weekly_row = st.selectbox(
+            "Select Weekly Record to Delete",
+            options=list(range(len(weekly_history))),
+            format_func=lambda x: f"{weekly_history.iloc[x].get('Week Range', '')}",
+            key="delete_weekly_row",
+        )
+
+        if st.button("Delete Selected Weekly Record"):
+            weekly_history = weekly_history.drop(weekly_history.index[selected_weekly_row])
+            save_csv(weekly_history, WEEKLY_FILE)
+            st.success("Weekly record deleted.")
+            st.rerun()
+
+        st.download_button(
+            "Download Weekly CSV",
+            weekly_history.to_csv(index=False).encode("utf-8"),
+            "gdi_weekly_history.csv",
+            "text/csv",
+        )
