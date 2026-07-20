@@ -1,6 +1,8 @@
 streamlit
-pdfplumber
 pandas
 plotly
-openpyxl
+Pillow
+pyxlsb
+pdfplumber
 python-docx
+openpyxl

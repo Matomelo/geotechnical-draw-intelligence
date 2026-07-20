@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from docx import Document
 from PIL import Image
+from daily_dispatch import render_daily_dispatch
 
 
 st.set_page_config(page_title="GeoIntel — Geotechnical Decision Intelligence", layout="wide")
@@ -1877,13 +1878,14 @@ div[data-testid="stDataFrame"] {border:1px solid var(--border); border-radius:7p
 </div>
 """, unsafe_allow_html=True)
 
-tab_polygon, tab_daily, tab_weekend, tab_weekly, tab_insights, tab_red_rating, tab_history = st.tabs([
+tab_polygon, tab_daily, tab_weekend, tab_weekly, tab_insights, tab_red_rating, tab_dispatch, tab_history = st.tabs([
     "🏠 GeoIntel Workspace",
     "📈 Daily Analysis",
     "📅 Weekend Analysis",
     "📊 Weekly Dashboard",
     "🧠 Intelligence",
     "🚨 Red Rating Tracker",
+    "🚧 Daily Dispatch",
     "⚙️ History / Admin"
 ])
 
@@ -3327,6 +3329,10 @@ with tab_red_rating:
             show_cols = [c for c in ["Date", "Start Time", "End Time", "Duration Hours", "Locations", "Category", "Activity Affected", "Department / Function", "Shift", "Status", "Investigation Stage", "Severity Score", "Severity", "Responsible Person", "Action / Comments", "Outcome"] if c in filtered.columns]
             st.dataframe(filtered.sort_values(["Date", "Start Time"], ascending=False)[show_cols], width="stretch", hide_index=True)
             st.download_button("Download filtered CSV", filtered.to_csv(index=False).encode("utf-8"), "GeoIntel_red_rating_history.csv", "text/csv", use_container_width=True)
+
+
+with tab_dispatch:
+    render_daily_dispatch(RED_RATING_FILE)
 
 
 with tab_history:
